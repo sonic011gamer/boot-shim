@@ -2,7 +2,7 @@ trigger:
 - master
 
 pool:
-  name: Default
+  name: visualstudio
 
 variables:
   solution: '**/*.sln'
