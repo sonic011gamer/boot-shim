@@ -4,7 +4,7 @@ VOID JumpToAddress(
 	EFI_HANDLE ImageHandle, 
 	EFI_PHYSICAL_ADDRESS Address,
 	VOID* PayloadBuffer,
-	UINT32 PayloadLength
+	UINTN PayloadLength
 )
 {
 
@@ -17,68 +17,8 @@ VOID JumpToAddress(
 	UINT32 PayloadAddress32 = (UINT32) Address;
 	UINT32 PayloadLength32 = (UINT32) PayloadLength;
 
-	gBS->GetMemoryMap(
-		&MemMapSize, 
-		MemMap, 
-		&MapKey, 
-		&DesSize, 
-		&DesVersion
-	);
-
-	/* Shutdown */
-	Status = gBS->ExitBootServices(
-		ImageHandle, 
-		MapKey
-	);
-
-	if (EFI_ERROR(Status))
-	{
-		Print(L"Failed to exit BS\n");
-		return;
-	}
-
-	/* Move LOAD section to actual location */
-	SetMem(
-		(VOID*)PayloadAddress32,
-		PayloadLength32,
-		0xFF);
-
-	CopyMem(
-		(VOID*)PayloadAddress32,
-		PayloadBuffer,
-		PayloadLength32
-	);
-
-	/* De-initialize */
-	ArmDeInitialize();
-
-	/* Disable GIC */
-	writel(0, GIC_DIST_CTRL);
-
-	// You should not reach here
-	while (TRUE) { }
-}
-
-VOID JumpToAddressARM(
-	EFI_HANDLE ImageHandle,
-	EFI_PHYSICAL_ADDRESS AArch32Address,
-	EFI_PHYSICAL_ADDRESS ARMAddress,
-	VOID* ARMPayloadBuffer,
-	UINT32 ARMPayloadLength
-)
-{
-
-	EFI_STATUS Status;
-	UINTN MemMapSize = 0;
-	EFI_MEMORY_DESCRIPTOR* MemMap = 0;
-	UINTN MapKey = 0;
-	UINTN DesSize = 0;
-	UINT32 DesVersion = 0;
-	UINT32 PayloadAddress32 = (UINT32) ARMAddress;
-	UINT32 PayloadLength32 = (UINT32) ARMPayloadLength;
-
 	/* Entry */
-	VOID(*entry)() = (VOID*) AArch32Address;
+	VOID(*entry)() = (VOID*) Address;
 
 	Print(L"Exiting boot services... \n");
 
@@ -110,7 +50,7 @@ VOID JumpToAddressARM(
 
 	CopyMem(
 		(VOID*)PayloadAddress32,
-		ARMPayloadBuffer,
+		PayloadBuffer,
 		PayloadLength32
 	);
 
