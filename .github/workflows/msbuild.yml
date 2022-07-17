@@ -1,0 +1,43 @@
+name: MSBuild
+
+on:
+  push:
+    branches: [ "experimental" ]
+  pull_request:
+    branches: [ "experimental" ]
+
+env:
+  # Path to the solution file relative to the root of the project.
+  SOLUTION_FILE_PATH: "Boot Shim.sln"
+
+  BUILD_CONFIGURATION: Debug
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Checkout submodules
+      run: git submodule update --init --recursive
+
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v1.1
+      with:
+        msbuild-architecture: ARM
+
+
+    - name: Build
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      # Add additional options to the MSBuild command line here (like platform or verbosity level).
+      # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
+      run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} "Boot Shim.sln"
+      
+    - uses: actions/upload-artifact@v3
+      with:
+        name: BootShim
+        path: D:\a\boot-shim\boot-shim\build\BootShim\ARM\Debug\BootShim.efi
