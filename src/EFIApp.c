@@ -62,7 +62,7 @@ VOID JumpToAddress(
 VOID JumpToAddressARM(
 	EFI_HANDLE ImageHandle,
 	EFI_PHYSICAL_ADDRESS AArch32Address,
-	EFI_PHYSICAL_ADDRESS AArch64Address,
+	EFI_PHYSICAL_ADDRESS ARMAddress,
 	VOID* ARMPayloadBuffer,
 	UINT64 ARMPayloadLength
 )
@@ -74,8 +74,8 @@ VOID JumpToAddressARM(
 	UINTN MapKey = 0;
 	UINTN DesSize = 0;
 	UINT32 DesVersion = 0;
-	UINT32 PayloadAddress32 = (UINT32) AArch64Address;
-	UINT32 PayloadLength32 = (UINT32) AArch64PayloadLength;
+	UINT32 PayloadAddress32 = (UINT32) ARMAddress;
+	UINT32 PayloadLength32 = (UINT32) ARMPayloadLength;
 
 	/* Entry */
 	VOID(*entry)() = (VOID*) AArch32Address;
@@ -110,7 +110,7 @@ VOID JumpToAddressARM(
 
 	CopyMem(
 		(VOID*)PayloadAddress32,
-		AArch64PayloadBuffer,
+		ARMPayloadBuffer,
 		PayloadLength32
 	);
 
@@ -219,8 +219,8 @@ EFI_STATUS efi_main(
 	Elf32_Ehdr* PayloadElf32Ehdr = NULL;
 	Elf32_Phdr* PayloadElf32Phdr = NULL;
 
-	UINT PayloadSectionOffset = 0;
-	UINT PayloadLength = 0;
+	UINTN PayloadSectionOffset = 0;
+	UINTN PayloadLength = 0;
 
 #if defined(_GNU_EFI)
 	InitializeLib(

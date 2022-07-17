@@ -41,9 +41,9 @@ VOID JumpToAddress(
 VOID JumpToAddressARM(
 	EFI_HANDLE ImageHandle,
 	EFI_PHYSICAL_ADDRESS AArch32Address,
-	EFI_PHYSICAL_ADDRESS AArch64Address,
-	VOID* ARMPayloadBuffer,
-	UINT64 ARMPayloadLength
+	EFI_PHYSICAL_ADDRESS ARMAddress,
+	VOID* PayloadBuffer,
+	UINTN PayloadLength
 );
 
 #endif
