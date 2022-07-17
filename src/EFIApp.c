@@ -452,7 +452,7 @@ EFI_STATUS efi_main(
 		/* Jump to LOAD section entry point and never returns */
 		Print(L"\nJump to address 0x%llx. See you in whatever you're booting ;p\n", LkEntryPoint);
 
-		JumpToAddressARM(
+		JumpToAddress(
 			ImageHandle,
 			UefiEntryPoint,
 			PayloadLoadSec,
