@@ -386,7 +386,7 @@ EFI_STATUS efi_main(
 
 		Print(L"Proceeded to Payload load\n");
 		PayloadElf32Phdr = (VOID*) (((UINTN) PayloadFileBuffer) + PayloadElf32Ehdr->e_phoff);
-		LkEntryPoint = PayloadElf32Ehdr->e_entry;
+		UefiEntryPoint = PayloadElf32Ehdr->e_entry;
 
 		Print(L"%d sections will be inspected.\n", PayloadElf32Ehdr->e_phnum);
 
@@ -450,7 +450,7 @@ EFI_STATUS efi_main(
 		ASSERT(Status == EFI_SUCCESS);
 
 		/* Jump to LOAD section entry point and never returns */
-		Print(L"\nJump to address 0x%llx. See you in whatever you're booting ;p\n", LkEntryPoint);
+		Print(L"\nJump to address 0x%llx. See you in whatever you're booting ;p\n", UefiEntryPoint);
 
 		JumpToAddress(
 			ImageHandle,
