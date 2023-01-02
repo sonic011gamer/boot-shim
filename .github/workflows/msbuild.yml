@@ -2,9 +2,9 @@ name: MSBuild
 
 on:
   push:
-    branches: [ "experimental" ]
+    branches: [ "msm8960" ]
   pull_request:
-    branches: [ "experimental" ]
+    branches: [ "msm8960" ]
 
 env:
   # Path to the solution file relative to the root of the project.

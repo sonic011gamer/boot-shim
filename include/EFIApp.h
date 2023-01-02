@@ -23,9 +23,7 @@
 #define writel(v, a) (*REG32(a) = (v))
 #define readl(a) (*REG32(a))
 
-#define APPS_SS_BASE                0x0B000000
-
-#define MSM_GIC_DIST_BASE           APPS_SS_BASE
+#define MSM_GIC_DIST_BASE           0x02000000
 #define GIC_DIST_REG(off)           (MSM_GIC_DIST_BASE + (off))
 
 #define GIC_DIST_CTRL               GIC_DIST_REG(0x000)
