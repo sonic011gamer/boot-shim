@@ -1,8 +1,11 @@
 #include "EFIApp.h"
 
+// This is the actual entrypoint.
+// Application entrypoint (must be set to 'efi_main' for gnu-efi crt0 compatibility)
 EFI_STATUS efi_main(
 	EFI_HANDLE ImageHandle, 
 	EFI_SYSTEM_TABLE *SystemTable
+)
 {
     EFI_LOADED_IMAGE_PROTOCOL *loaded_image;
     EFI_DEVICE_PATH_PROTOCOL *device_path;
