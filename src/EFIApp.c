@@ -1,166 +1,18 @@
 #include "EFIApp.h"
 
-VOID JumpToAddress(
-	EFI_HANDLE ImageHandle, 
-	EFI_PHYSICAL_ADDRESS Address,
-	VOID* PayloadBuffer,
-	UINTN PayloadLength
-)
-{
-
-	EFI_STATUS Status;
-	UINTN MemMapSize = 0;
-	EFI_MEMORY_DESCRIPTOR* MemMap = 0;
-	UINTN MapKey = 0;
-	UINTN DesSize = 0;
-	UINT32 DesVersion = 0;
-	UINT32 PayloadAddress32 = (UINT32) Address;
-	UINT32 PayloadLength32 = (UINT32) PayloadLength;
-
-	/* Entry */
-	VOID(*entry)() = (VOID*) Address;
-
-	Print(L"Exiting boot services... \n");
-
-	gBS->GetMemoryMap(
-		&MemMapSize,
-		MemMap,
-		&MapKey,
-		&DesSize,
-		&DesVersion
-	);
-
-	/* Shutdown */
-	Status = gBS->ExitBootServices(
-		ImageHandle,
-		MapKey
-	);
-
-	if (EFI_ERROR(Status))
-	{
-		Print(L"Failed to exit BS\n");
-		return;
-	}
-
-	/* Move LOAD section to actual location */
-	SetMem(
-		(VOID*)PayloadAddress32,
-		PayloadLength32,
-		0xFF);
-
-	CopyMem(
-		(VOID*)PayloadAddress32,
-		PayloadBuffer,
-		PayloadLength32
-	);
-
-	/* De-initialize */
-	ArmDeInitialize();
-
-	/* Disable GIC */
-	writel(0, GIC_DIST_CTRL);
-
-	/* Lets go */
-	entry();
-
-}
-
-BOOLEAN CheckElf32Header(Elf32_Ehdr* bl_elf_hdr)
-{
-
-	EFI_PHYSICAL_ADDRESS ElfEntryPoint;
-	EFI_STATUS Status = EFI_SUCCESS;
-
-	if (bl_elf_hdr == NULL) return FALSE;
-
-	// Sanity check: Signature
-	if (bl_elf_hdr->e_ident[EI_MAG0] != ELFMAG0 ||
-		bl_elf_hdr->e_ident[EI_MAG1] != ELFMAG1 ||
-		bl_elf_hdr->e_ident[EI_MAG2] != ELFMAG2 ||
-		bl_elf_hdr->e_ident[EI_MAG3] != ELFMAG3)
-	{
-		Print(L"Fail: Invalid ELF magic\n");
-		return FALSE;
-	}
-
-	// Sanity check: Architecture
-	if (bl_elf_hdr->e_machine != EM_ARM)
-	{
-		Print(L"Fail: Not ARM architecture ELF32 file\n");
-		return FALSE;
-	}
-
-	// Sanity check: exec
-	if (bl_elf_hdr->e_type != ET_EXEC)
-	{
-		Print(L"Fail: Not EXEC ELF\n");
-		return FALSE;
-	}
-
-	// Sanity check: entry point and size
-	ElfEntryPoint = bl_elf_hdr->e_entry;
-	Status = gBS->AllocatePages(
-		AllocateAddress, 
-		EfiLoaderCode, 
-		1, 
-		&ElfEntryPoint
-	);
-
-	if (EFI_ERROR(Status))
-	{
-		Print(L"%EFail: Invalid entry point. Boot may fail!%N\n");
-	}
-	else
-	{
-		// Free page allocated
-		gBS->FreePages(
-			ElfEntryPoint,
-			1
-		);
-	}
-
-	// Sanity check: program header entries. At least one should present.
-	if (bl_elf_hdr->e_phnum < 1)
-	{
-		Print(L"Fail: Less than one program header entry found\n");
-		return FALSE;
-	}
-
-	return TRUE;
-}
-
-// This is the actual entrypoint.
-// Application entrypoint (must be set to 'efi_main' for gnu-efi crt0 compatibility)
 EFI_STATUS efi_main(
 	EFI_HANDLE ImageHandle, 
 	EFI_SYSTEM_TABLE *SystemTable
-)
 {
-
-	EFI_STATUS Status = EFI_SUCCESS;
-	
-	UINTN NumHandles = 0;
-	EFI_HANDLE *SfsHandles;
-
-	EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *EfiSfsProtocol;
-	EFI_FILE_PROTOCOL *FileProtocol;
-	EFI_FILE_PROTOCOL *PayloadFileProtocol;
-	CHAR16 *PayloadFileName = PAYLOAD_BINARY_NAME;
-
-	EFI_PHYSICAL_ADDRESS UefiEntryPoint = PAYLOAD_ENTRY_POINT_ADDR_INVALID;
-	EFI_PHYSICAL_ADDRESS LkEntryPoint = PAYLOAD_ENTRY_POINT_ADDR_INVALID;
-	UINTN PayloadFileBufferSize;
-	VOID* PayloadFileBuffer;
-	VOID* PayloadLoadSec;
-
-	EFI_FILE_INFO *PayloadFileInformation = NULL;
-	UINTN PayloadFileInformationSize = 0;
-
-	Elf32_Ehdr* PayloadElf32Ehdr = NULL;
-	Elf32_Phdr* PayloadElf32Phdr = NULL;
-
-	UINTN PayloadSectionOffset = 0;
-	UINTN PayloadLength = 0;
+    EFI_LOADED_IMAGE_PROTOCOL *loaded_image;
+    EFI_DEVICE_PATH_PROTOCOL *device_path;
+    EFI_HANDLE device;
+    EFI_FILE_IO_INTERFACE *disk;
+    EFI_FILE *root;
+    EFI_FILE *file;
+    VOID *buffer;
+    UINTN size;
+    EFI_STATUS status;
 
 #if defined(_GNU_EFI)
 	InitializeLib(
@@ -169,255 +21,160 @@ EFI_STATUS efi_main(
 	);
 #endif
 
-	// Load emmc_appsboot.mbn
-	Status = gBS->LocateHandleBuffer(
-		ByProtocol,
-		&gEfiSimpleFileSystemProtocolGuid,
-		NULL,
-		&NumHandles,
-		&SfsHandles
-	);
+    // Get the Loaded Image Protocol for this image
+    status = uefi_call_wrapper(BS->HandleProtocol, 3, image, &LoadedImageProtocol, (VOID **) &loaded_image);
+    if (EFI_ERROR(status)) {
+        Print(L"Failed to get Loaded Image Protocol\n");
+        return status;
+    }
 
-	if (EFI_ERROR(Status))
-	{
-		Print(L"Fail to locate Simple File System Handles\n");
-		goto exit;
-	}
+    // Get the device handle and device path for the boot partition
+    device = loaded_image->DeviceHandle;
+    status = uefi_call_wrapper(BS->HandleProtocol, 3, device, &DevicePathProtocol, (VOID **) &device_path);
+    if (EFI_ERROR(status)) {
+        Print(L"Failed to get Device Path Protocol\n");
+        return status;
+    }
 
-	for (UINTN index = 0; index < NumHandles; index++)
-	{
-		Status = gBS->HandleProtocol(
-			SfsHandles[index],
-			&gEfiSimpleFileSystemProtocolGuid,
-			(VOID**) &EfiSfsProtocol
-		);
+    // Open the disk for the boot partition
+    status = uefi_call_wrapper(BS->HandleProtocol, 3, device, &FileSystemProtocol, (VOID **) &disk);
+    if (EFI_ERROR(status)) {
+        Print(L"Failed to get File System Protocol\n");
+        return status;
+    }
 
-		if (EFI_ERROR(Status))
-		{
-			Print(L"Failed to invoke HandleProtocol.\n");
-			continue;
-		}
+    // Open the root directory of the boot partition
+    status = uefi_call_wrapper(disk->OpenVolume, 2, disk, &root);
+    if (EFI_ERROR(status)) {
+        Print(L"Failed to open root directory\n");
+        return status;
+    }
 
-		Status = EfiSfsProtocol->OpenVolume(
-			EfiSfsProtocol,
-			&FileProtocol
-		);
+    // Open the Linux kernel file
+    status = uefi_call_wrapper(root->Open, 5, root, &file, L"Image", EFI_FILE_MODE_READ, 0);
+    if (EFI_ERROR(status)) {
+        Print(L"Failed to open Image\n");
+       
+    // Allocate a buffer for the kernel
+    size = 0;
+    status = uefi_call_wrapper(file->GetInfo, 4, file, &FileInfo, &size, NULL);
+    if (EFI_ERROR(status) && status != EFI_BUFFER_TOO_SMALL) {
+        Print(L"Failed to get file size\n");
+        return status;
+    }
 
-		if (EFI_ERROR(Status))
-		{
-			Print(L"Fail to get file protocol handle\n");
-			continue;
-		}
+    buffer = AllocatePool(size);
+    if (buffer == NULL) {
+        Print(L"Failed to allocate buffer for kernel\n");
+        return EFI_OUT_OF_RESOURCES;
+    }
 
-		Status = FileProtocol->Open(
-			FileProtocol,
-			&PayloadFileProtocol,
-			PayloadFileName,
-			EFI_FILE_MODE_READ,
-			EFI_FILE_READ_ONLY | EFI_FILE_HIDDEN | EFI_FILE_SYSTEM
-		);
+    // Read the kernel into the buffer
+    size = 0;
+    status = uefi_call_wrapper(file->Read, 3, file, &size, buffer);
+    if (EFI_ERROR(status)) {
+        Print(L"Failed to read kernel\n");
+        return status;
+    }
 
-		if (EFI_ERROR(Status))
-		{
-			Print(L"Failed to open payload image: %r\n", Status);
-			continue;
-		}
+    // Close the kernel file
+    status = uefi_call_wrapper(file->Close, 1, file);
+    if (EFI_ERROR(status)) {
+        Print(L"Failed to close Image\n");
+        return status;
+    }
 
-		// Read image and parse ELF32 file
-		Print(L"Opened payload image\n");
+    // Open the DTB file
+    status = uefi_call_wrapper(root->Open, 5, root, &file, L"lumia.dtb", EFI_FILE_MODE_READ, 0);
+    if (EFI_ERROR(status)) {
+        Print(L"Failed to open dtb\n");
+        return status;
+    }
 
-		Status = PayloadFileProtocol->GetInfo(
-			PayloadFileProtocol,
-			&gEfiFileInfoGuid,
-			&PayloadFileInformationSize,
-			(VOID *) PayloadFileInformation
-		);
+    // Allocate a buffer for the DTB
+    size = 0;
+    status = uefi_call_wrapper(file->GetInfo, 4, file, &FileInfo, &size, NULL);
+    if (EFI_ERROR(status) && status != EFI_BUFFER_TOO_SMALL) {
+        Print(L"Failed to get file size\n");
+        return status;
+    }
 
-		if (Status == EFI_BUFFER_TOO_SMALL)
-		{
-			Status = gBS->AllocatePool(
-				EfiLoaderData, 
-				PayloadFileInformationSize, 
-				&PayloadFileInformation
-			);
+    VOID *dtb = AllocatePool(size);
+    if (dtb == NULL) {
+        Print(L"Failed to allocate buffer for dtb\n");
+        return EFI_OUT_OF_RESOURCES;
+    }
 
-			if (EFI_ERROR(Status))
-			{
-				Print(L"Failed to allocate pool for file info: %r\n", Status);
-				goto local_cleanup;
-			}
+    // Read the DTB into the buffer
+    size = 0;
+    status = uefi_call_wrapper(file->Read, 3, file, &size, dtb);
+    if (EFI_ERROR(status)) {
+        Print(L"Failed to read dtb\n");
+        return status;
+    }
 
-			SetMem(
-				(VOID *) PayloadFileInformation, 
-				PayloadFileInformationSize, 
-				0xFF
-			);
+    // Close the DTB file
+    status = uefi_call_wrapper(file->Close, 1, file);
+    if (EFI_ERROR(status)) {
+        Print(L"Failed to close dtb\n");
+        return status;
+    }
 
-			Status = PayloadFileProtocol->GetInfo(
-				PayloadFileProtocol,
-				&gEfiFileInfoGuid,
-				&PayloadFileInformationSize,
-				(VOID *)PayloadFileInformation
-			);
-		}
+    // Set the command line arguments
+    CHAR16 *cmdline = L"";
+    EFI_PHYSICAL_ADDRESS cmdline_paddr = (EFI_PHYSICAL_ADDRESS)(UINTN)cmdline;
 
-		if (EFI_ERROR(Status))
-		{
-			Print(L"Failed to stat payload image: %r\n", Status);
-			goto local_cleanup;
-		}
+    // Set up the EFI boot information
+    EFI_BOOT_SERVICES *bs = systab->BootServices
+    // Allocate pages for the kernel and DTB
+    EFI_PHYSICAL_ADDRESS kernel_paddr;
+    status = uefi_call_wrapper(bs->AllocatePages, 4, AllocateAnyPages, EfiLoaderData, EFI_SIZE_TO_PAGES(size), &kernel_paddr);
+    if (EFI_ERROR(status)) {
+        Print(L"Failed to allocate pages for kernel\n");
+        return status;
+    }
 
-		Print(L"Payload image size: 0x%llx\n", PayloadFileInformation->FileSize);
-		if (PayloadFileInformation->FileSize > UINT32_MAX)
-		{
-			Print(L"Payload image is too large\n");
-			goto local_cleanup_free_info;
-		}
+    EFI_PHYSICAL_ADDRESS dtb_paddr;
+    status = uefi_call_wrapper(bs->AllocatePages, 4, AllocateAnyPages, EfiLoaderData, EFI_SIZE_TO_PAGES(size), &dtb_paddr);
+    if (EFI_ERROR(status)) {
+        Print(L"Failed to allocate pages for dtb\n");
+        return status;
+    }
 
-		PayloadFileBufferSize = (UINTN) PayloadFileInformation->FileSize;
+    // Copy the kernel and DTB to their respective pages
+    CopyMem((VOID *)(UINTN)kernel_paddr, buffer, size);
+    CopyMem((VOID *)(UINTN)dtb_paddr, dtb, size);
 
-		/* Allocate pool for reading file */
-		Status = gBS->AllocatePool(
-			EfiLoaderData, 
-			PayloadFileBufferSize, 
-			&PayloadFileBuffer
-		);
+    // Free the buffers
+    FreePool(buffer);
+    FreePool(dtb);
 
-		if (EFI_ERROR(Status))
-		{
-			Print(L"Failed to allocate pool for file: %r\n", Status);
-			goto local_cleanup_free_info;
-		}
+    // Set up the boot information
+    EFI_LOAD_OPTION boot_info;
+    boot_info.Attributes = LOAD_OPTION_CATEGORY_BOOT;
+    boot_info.FilePathListLength = GetDevicePathSize(device_path);
+    boot_info.Description = L"Linux";
+    boot_info.FilePathList = device_path;
+    boot_info.OptionalData = cmdline_paddr;
+    boot_info.OptionalDataSize = (UINT32)(StrLen(cmdline) + 1) * sizeof(CHAR16);
 
-		SetMem(
-			PayloadFileBuffer,
-			PayloadFileBufferSize,
-			0xFF);
+    // Load and start the kernel
+    status = uefi_call_wrapper(bs->LoadImage, 6, FALSE, image, &boot_info, NULL, 0, &image);
+    if (EFI_ERROR(status)) {
+        Print(L"Failed to load kernel\n");
+        return status;
+    }
+	/* De-initialize */
+	ArmDeInitialize();
 
-		/* Read file */
-		Status = PayloadFileProtocol->Read(
-			PayloadFileProtocol,
-			&PayloadFileBufferSize,
-			PayloadFileBuffer
-		);
+	/* Disable GIC */
+	writel(0, GIC_DIST_CTRL);
+    
+    status = uefi_call_wrapper(bs->StartImage, 3, image, NULL, NULL);
+    if (EFI_ERROR(status)) {
+        Print(L"Failed to start kernel\n");
+        return status;
+    }
 
-		if (EFI_ERROR(Status))
-		{
-			Print(L"Failed to read file: %r\n", Status);
-			goto local_cleanup_file_pool;
-		}
-
-		Print(L"Payload loaded into memory at 0x%x.\n", PayloadFileBuffer);
-
-		/* Check LK file */
-		PayloadElf32Ehdr = PayloadFileBuffer;
-		if (!CheckElf32Header(PayloadElf32Ehdr))
-		{
-			Print(L"Cannot load this LK image\n");
-			goto local_cleanup_file_pool;
-		}
-
-		/* Check overlapping */
-		if (PayloadElf32Ehdr->e_phoff < sizeof(Elf32_Ehdr))
-		{
-			Print(L"ELF header has overlapping\n");
-			goto local_cleanup_file_pool;
-		}
-
-		Print(L"Proceeded to Payload load\n");
-		PayloadElf32Phdr = (VOID*) (((UINTN) PayloadFileBuffer) + PayloadElf32Ehdr->e_phoff);
-		UefiEntryPoint = PayloadElf32Ehdr->e_entry;
-
-		Print(L"%d sections will be inspected.\n", PayloadElf32Ehdr->e_phnum);
-
-		/* Determine LOAD section */
-		for (UINTN ph_idx = 0; ph_idx < PayloadElf32Ehdr->e_phnum; ph_idx++)
-		{
-			PayloadElf32Phdr = (VOID*) (((UINTN)PayloadElf32Phdr) + (ph_idx * sizeof(Elf32_Phdr)));
-
-			/* Check if it is LOAD section */
-			if (PayloadElf32Phdr->p_type != PT_LOAD)
-			{
-				Print(L"Section %d skipped because it is not LOAD, it is 0x%x\n", ph_idx, PayloadElf32Phdr->p_type);
-				continue;
-			}
-
-			/* Sanity check: PA = VA, PA = entry_point, memory size = file size */
-			if (PayloadElf32Phdr->p_paddr != PayloadElf32Phdr->p_vaddr)
-			{
-				Print(L"LOAD section %d skipped due to identity mapping vioaltion\n", ph_idx);
-				continue;
-			}
-
-			if (PayloadElf32Phdr->p_filesz != PayloadElf32Phdr->p_memsz)
-			{
-				Print(L"%ELOAD section %d size inconsistent; use with caution%N\n", ph_idx);
-			}
-
-			if (PayloadElf32Phdr->p_paddr != UefiEntryPoint)
-			{
-				Print(L"LOAD section %d skipped due to entry point violation\n", ph_idx);
-				continue;
-			}
-
-			PayloadSectionOffset = PayloadElf32Phdr->p_offset;
-			PayloadLength = PayloadElf32Phdr->p_memsz;
-
-			/* Exit on the first result */
-			break;
-		}
-
-		if (PayloadSectionOffset == 0 || PayloadLength == 0)
-		{
-			Print(L"Unable to find suitable LOAD section\n");
-			goto local_cleanup_file_pool;
-		}
-
-		Print(L"ELF entry point = 0x%llx\n", PayloadElf32Phdr->p_paddr);
-		Print(L"ELF offset = 0x%llx\n", PayloadSectionOffset);
-		Print(L"ELF length = 0x%llx\n", PayloadLength);
-
-		PayloadLoadSec = (VOID*) (((UINTN) PayloadFileBuffer) + PayloadSectionOffset);
-
-		/* Ensure loader is not located too high */
-		if (UefiEntryPoint > UINT32_MAX)
-		{
-			Print(L"Loader located too high\n");
-			Status = EFI_INVALID_PARAMETER;
-			goto local_cleanup_file_pool;
-		}
-
-		ASSERT(Status == EFI_SUCCESS);
-
-		/* Jump to LOAD section entry point and never returns */
-		Print(L"\nJump to address 0x%llx. See you in whatever you're booting ;p\n", UefiEntryPoint);
-
-		JumpToAddress(
-			ImageHandle,
-			UefiEntryPoint,
-			PayloadLoadSec,
-			PayloadLength
-		);
-
-		local_cleanup_file_pool:
-		gBS->FreePool(PayloadFileBuffer);
-
-		local_cleanup_free_info:
-		gBS->FreePool((VOID *) PayloadFileInformation);
-
-		local_cleanup:
-		Status = PayloadFileProtocol->Close(PayloadFileProtocol);
-		if (EFI_ERROR(Status))
-		{
-			Print(L"Failed to close Payload image: %r\n", Status);
-		}
-
-		break;
-	}
-
-exit:
-	// If something fails, give 5 seconds to user inspect what happened
-	gBS->Stall(SECONDS_TO_MICROSECONDS(5));
-	return Status;
-
+    return EFI_SUCCESS;
 }
