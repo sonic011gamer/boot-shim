@@ -3,8 +3,8 @@
 // This is the actual entrypoint.
 // Application entrypoint (must be set to 'efi_main' for gnu-efi crt0 compatibility)
 EFI_STATUS efi_main(
-	EFI_HANDLE ImageHandle, 
-	EFI_SYSTEM_TABLE *SystemTable
+	EFI_HANDLE image, 
+	EFI_SYSTEM_TABLE *systab
 )
 {
     EFI_LOADED_IMAGE_PROTOCOL *loaded_image;
