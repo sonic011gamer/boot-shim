@@ -19,8 +19,8 @@ EFI_STATUS efi_main(
 
 #if defined(_GNU_EFI)
 	InitializeLib(
-		ImageHandle, 
-		SystemTable
+		image, 
+		systab
 	);
 #endif
 
