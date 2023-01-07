@@ -16,6 +16,13 @@ EFI_STATUS efi_main(
     VOID *buffer;
     UINTN size;
     EFI_STATUS status;
+    EFI_FILE_INFO *FileInfo;
+    
+    // Allocate memory for FileInfo
+    FileInfo = AllocatePool(sizeof(EFI_FILE_INFO));
+    if (FileInfo == NULL) {
+        // Handle error
+    }
 
 #if defined(_GNU_EFI)
 	InitializeLib(
@@ -125,10 +132,11 @@ EFI_STATUS efi_main(
 
     // Set the command line arguments
     CHAR16 *cmdline = L"";
-    EFI_PHYSICAL_ADDRESS cmdline_paddr = (EFI_PHYSICAL_ADDRESS)(UINTN)cmdline;
+    EFI_PHYSICAL_ADDRESS cmdline_paddr;
+    cmdline_paddr = (EFI_PHYSICAL_ADDRESS)(UINTN)cmdline;
 
     // Set up the EFI boot information
-    EFI_BOOT_SERVICES *bs = systab->BootServices
+    EFI_BOOT_SERVICES *bs = systab->BootServices;
     // Allocate pages for the kernel and DTB
     EFI_PHYSICAL_ADDRESS kernel_paddr;
     status = uefi_call_wrapper(bs->AllocatePages, 4, AllocateAnyPages, EfiLoaderData, EFI_SIZE_TO_PAGES(size), &kernel_paddr);
