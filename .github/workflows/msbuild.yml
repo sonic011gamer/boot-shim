@@ -1,6 +1,7 @@
 name: MSBuild
 
 on:
+  workflow_dispatch:
   push:
     branches: [ "experimental" ]
   pull_request:
